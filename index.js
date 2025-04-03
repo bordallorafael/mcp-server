@@ -1,52 +1,66 @@
 import express from 'express';
 import cors from 'cors';
 import { z } from 'zod';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 
 const app = express();
-const port = process.env.PORT || 8080;
-
 app.use(cors());
 app.use(express.json());
 
-const clients = [];
-
-const helloSchema = z.object({
-  name: z.string().min(1)
-});
-
-const tools = [
-  {
-    id: "hello-tool",
-    description: "Diz olá com um nome",
-    parameters: [{ name: "name", type: "string", required: true }],
-    run: (input) => {
-      const { name } = helloSchema.parse(input);
-      return { message: `Olá, ${name}! Bem-vindo ao MCP.` };
-    }
-  }
+const port = process.env.PORT || 8080;
+const produtos = [
+  { nome: 'Café Especial', preco: 19.90 },
+  { nome: 'Leite Integral', preco: 6.50 },
+  { nome: 'Açúcar Cristal', preco: 4.20 }
 ];
 
-// SSE
-app.get('/mcp/v1/sse', (req, res) => {
-  res.set({
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive'
-  });
-  res.flushHeaders();
-
-  clients.push(res);
-  req.on('close', () => {
-    const index = clients.indexOf(res);
-    if (index !== -1) clients.splice(index, 1);
-  });
+const server = new McpServer({
+  name: 'mcp_sse_sdk_server',
+  version: '1.0.0',
 });
 
-// Lista ferramentas
-app.get('/mcp/v1/tools', (req, res) => {
-  res.json(
-    tools.map(({ id, description, parameters }) => ({ id, description, parameters }))
-  );
+// Tool 1: listar_produtos
+server.tool({
+  name: 'listar_produtos',
+  description: 'Lista todos os produtos com nome e preço',
+  paramsSchema: z.object({}),
+  cb: async () => {
+    const lista = produtos.map(p => `- ${p.nome} (R$ ${p.preco.toFixed(2).replace('.', ',')})`).join('\n');
+    return {
+      content: [
+        { type: 'text', text: lista }
+      ]
+    };
+  }
 });
 
-// Executa ferramenta
+// Tool 2: buscar_produto
+server.tool({
+  name: 'buscar_produto',
+  description: 'Busca um produto pelo nome',
+  paramsSchema: z.object({ nome: z.string() }),
+  cb: async ({ nome }) => {
+    const produto = produtos.find(p => p.nome.toLowerCase() === nome.toLowerCase());
+    const resposta = produto
+      ? `✅ ${produto.nome} custa R$ ${produto.preco.toFixed(2).replace('.', ',')}`
+      : `❌ Produto "${nome}" não encontrado.`;
+    return {
+      content: [
+        { type: 'text', text: resposta }
+      ]
+    };
+  }
+});
+
+// Conecta transporte SSE com caminhos padrão
+const transport = new SSEServerTransport({
+  ssePath: '/sse',
+  callPath: '/entrada'
+});
+
+await server.connect(transport);
+
+app.listen(port, () => {
+  console.log(`✅ Servidor MCP via SDK rodando na porta ${port}`);
+});
