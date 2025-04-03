@@ -3,7 +3,7 @@ import cors from 'cors';
 import { z } from 'zod';
 
 const app = express();
-const port = process.env.PORT || 3333;
+const port = process.env.PORT || 8080;
 
 app.use(cors());
 app.use(express.json());
