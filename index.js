@@ -33,6 +33,8 @@ app.get('/sse', (req, res) => {
 
 // ENTRADA DO n8n
 app.post('/entrada', (req, res) => {
+  console.log('📥 Requisição recebida em /entrada:');
+  console.log(JSON.stringify(req.body, null, 2));
   const { type, id, params } = req.body;
 
   if (type === 'ListToolsRequest') {
