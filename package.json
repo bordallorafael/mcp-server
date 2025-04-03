@@ -1,15 +1,2 @@
-{
-  "name": "mcp-sse-server",
-  "version": "1.0.0",
-  "description": "Servidor MCP com SSE customizado via HTTP",
-  "main": "index.js",
-  "type": "module",
-  "scripts": {
-    "start": "node index.js"
-  },
-  "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^4.18.2",
-    "zod": "^3.22.2"
-  }
-}
+npm init -y
+npm install express cors
