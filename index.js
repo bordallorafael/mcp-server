@@ -62,6 +62,14 @@ app.post('/entrada', (req, res) => {
         }
       ]
     };
+
+    try {
+      const json = JSON.parse(JSON.stringify(response));
+      console.log("✅ JSON ListToolsResponse válido.");
+    } catch (err) {
+      console.error("❌ JSON malformado!", err);
+    }
+      
     enviaParaTodos(JSON.stringify(response));
     return res.status(200).end();
   }
@@ -105,6 +113,7 @@ app.post('/entrada', (req, res) => {
 });
 
 function enviaParaTodos(data) {
+  console.log("🔢 Clientes SSE conectados:", clientesSSE.length);
   console.log("🚀 Enviando para SSE:", data);
   clientesSSE.forEach(res => res.write(`data: ${data}\n\n`));
 }
