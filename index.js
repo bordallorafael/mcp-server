@@ -1,10 +1,14 @@
-const express = require('express');
-const app = express();
-const port = process.env.PORT || 3000;
+import express from 'express';
+import cors from 'cors';
+import { Server } from '@modelcontextprotocol/sdk';
+import { createHttpSseServerTransport } from '@modelcontextprotocol/sdk/server/http.js';
+import { z } from 'zod';
 
+const app = express();
+app.use(cors());
 app.use(express.json());
 
-const clientesSSE = [];
+const port = process.env.PORT || 3000;
 
 const produtos = [
   { nome: "Café Especial", preco: 19.90 },
@@ -12,105 +16,72 @@ const produtos = [
   { nome: "Açúcar Cristal", preco: 4.20 }
 ];
 
-// SSE
-app.get('/sse', (req, res) => {
-  res.set({
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive'
-  });
-
-  res.flushHeaders();
-  res.write('retry: 10000\n\n'); // reconexão automática a cada 10s
-
-  clientesSSE.push(res);
-
-  req.on('close', () => {
-    const index = clientesSSE.indexOf(res);
-    if (index !== -1) clientesSSE.splice(index, 1);
-  });
-});
-
-// ENTRADA DO n8n
-app.post('/entrada', (req, res) => {
-  console.log('📥 Requisição recebida em /entrada:');
-  console.log(JSON.stringify(req.body, null, 2));
-  const { type, id, params } = req.body;
-
-  if (type === 'ListToolsRequest') {
-    const response = {
-      type: 'ListToolsResponse',
-      id,
-      tools: [
-        {
-          name: 'listar_produtos',
-          description: 'Lista todos os produtos com nome e preço',
-          inputSchema: { type: 'object', properties: {} }
-        },
-        {
-          name: 'buscar_produto',
-          description: 'Busca um produto pelo nome',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              nome: { type: 'string', description: 'Nome do produto' }
-            },
-            required: ['nome']
-          }
-        }
-      ]
-    };
-    enviaParaTodos(JSON.stringify(response));
-    res.status(200).end();
-    return;
-  }
-
-  if (type === 'CallToolRequest') {
-    const tool = params.name;
-    const args = params.arguments || {};
-    let text = '';
-
-    if (tool === 'listar_produtos') {
-      text = produtos.map(p => `- ${p.nome} (R$ ${p.preco.toFixed(2).replace('.', ',')})`).join('\n');
+const tools = [
+  {
+    name: 'listar_produtos',
+    description: 'Lista todos os produtos disponíveis',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    },
+    handler: async () => {
+      const lista = produtos.map(p => `- ${p.nome} (R$ ${p.preco.toFixed(2).replace('.', ',')})`).join('\n');
+      return {
+        content: [{ type: 'text', text: `📦 Lista de produtos disponíveis:\n${lista}` }]
+      };
     }
-
-    if (tool === 'buscar_produto') {
-      const nome = (args.nome || '').toLowerCase();
-      const p = produtos.find(prod => prod.nome.toLowerCase() === nome);
-      text = p
-        ? `✅ ${p.nome} custa R$ ${p.preco.toFixed(2).replace('.', ',')}`
-        : `❌ Produto "${args.nome}" não encontrado.`;
-    }
-
-    const response = {
-      type: 'CallToolResponse',
-      id,
-      output: {
+  },
+  {
+    name: 'buscar_produto',
+    description: 'Busca um produto pelo nome',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nome: { type: 'string', description: 'Nome do produto' }
+      },
+      required: ['nome']
+    },
+    handler: async (args) => {
+      const schema = z.object({ nome: z.string() });
+      const { nome } = schema.parse(args);
+      const produto = produtos.find(p => p.nome.toLowerCase() === nome.toLowerCase());
+      return {
         content: [
           {
             type: 'text',
-            text
+            text: produto
+              ? `✅ ${produto.nome} custa R$ ${produto.preco.toFixed(2).replace('.', ',')}`
+              : `❌ Produto "${nome}" não encontrado.`
           }
         ]
-      }
-    };
-
-    enviaParaTodos(JSON.stringify(response));
-    res.status(200).end();
-    return;
+      };
+    }
   }
+];
 
-  // Requisição inválida
-  res.status(400).json({ erro: 'Requisição não reconhecida.' });
-});
+const mcpServer = new Server(
+  { name: 'mcp-produtos-server', version: '1.0.0' },
+  { capabilities: { tools: {} } }
+);
 
-// Envia para todos os clientes conectados
-function enviaParaTodos(data) {
-  clientesSSE.forEach((res) => {
-    res.write(`data: ${data}\n\n`);
+for (const tool of tools) {
+  mcpServer.registerTool({
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+    handler: tool.handler
   });
 }
 
 app.listen(port, () => {
-  console.log(`Servidor MCP com SSE rodando na porta ${port}`);
+  console.log(`🚀 Servidor MCP com SSE rodando na porta ${port}`);
+
+  const transport = createHttpSseServerTransport(app, {
+    ssePath: '/sse',
+    callPath: '/entrada'
+  });
+
+  mcpServer.connect(transport).then(() => {
+    console.log('✅ Conectado ao MCP Client via SSE');
+  });
 });
